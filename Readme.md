@@ -188,3 +188,7 @@ python main.py
 
 [GNU3.0](https://opensource.org/license/gpl-3-0/)
 
+## 赞助商
+该项目的CDN加速和安全防护由腾讯EdgeOne赞助。  
+[Best Asian CDN, Edge, and Secure Solutions - Tencent EdgeOne](https://edgeone.ai/?from=github)  
+![EdgeOne](https://edgeone.ai/_next/static/media/headLogo.daeb48ad.png?auto=format&fit=max&w=256)
