@@ -81,17 +81,10 @@ class MqttManager(
             // 延迟订阅，确保连接完全建立
             handler.postDelayed({
                 try {
-                    client?.subscribe(topic, 1, null, object : IMqttActionListener {
-                        override fun onSuccess(asyncActionToken: IMqttToken?) {
-                            Log.i("MqttManager", "订阅成功: $topic")
-                        }
-
-                        override fun onFailure(asyncActionToken: IMqttToken?, exception: Throwable?) {
-                            Log.e("MqttManager", "订阅失败: ${exception?.message}")
-                        }
-                    })
+                    client?.subscribe(topic, 1)
+                    Log.i("MqttManager", "订阅成功: $topic")
                 } catch (e: Exception) {
-                    Log.e("MqttManager", "订阅异常: ${e.message}")
+                    Log.e("MqttManager", "订阅失败: ${e.message}")
                 }
             }, 1000)
 
