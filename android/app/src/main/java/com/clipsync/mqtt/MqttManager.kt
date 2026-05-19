@@ -1,6 +1,8 @@
 package com.clipsync.mqtt
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import com.clipsync.model.Message
 import org.eclipse.paho.client.mqttv3.*
@@ -15,6 +17,7 @@ class MqttManager(
     private var connected = false
     var onStateChanged: ((Boolean) -> Unit)? = null
     private val prefs = PrefsHelper(context)
+    private val handler = Handler(Looper.getMainLooper())
 
     private fun setState(connected: Boolean) {
         this.connected = connected
@@ -33,12 +36,15 @@ class MqttManager(
         }
 
         try {
+            // 断开旧连接
+            try { client?.disconnect() } catch (_: Exception) {}
+
             val clientId = "android-${android.os.Build.MODEL}-${System.currentTimeMillis()}"
             client = MqttClient(serverUri, clientId, MemoryPersistence())
 
             val options = MqttConnectOptions().apply {
-                isCleanSession = true
-                keepAliveInterval = 600
+                isCleanSession = false
+                keepAliveInterval = 60
                 connectionTimeout = 10
                 isAutomaticReconnect = true
                 userName = prefs.mqttUsername
@@ -69,9 +75,26 @@ class MqttManager(
             })
 
             client?.connect(options)
-            client?.subscribe(topic, 1)
             setState(true)
             Log.i("MqttManager", "MQTT连接成功: $serverUri topic=$topic")
+
+            // 延迟订阅，确保连接完全建立
+            handler.postDelayed({
+                try {
+                    client?.subscribe(topic, 1, null, object : IMqttActionListener {
+                        override fun onSuccess(asyncActionToken: IMqttToken?) {
+                            Log.i("MqttManager", "订阅成功: $topic")
+                        }
+
+                        override fun onFailure(asyncActionToken: IMqttToken?, exception: Throwable?) {
+                            Log.e("MqttManager", "订阅失败: ${exception?.message}")
+                        }
+                    })
+                } catch (e: Exception) {
+                    Log.e("MqttManager", "订阅异常: ${e.message}")
+                }
+            }, 1000)
+
         } catch (e: MqttException) {
             setState(false)
             Log.e("MqttManager", "MQTT连接失败: reasonCode=${e.reasonCode} message=${e.message}", e)
@@ -93,6 +116,7 @@ class MqttManager(
     }
 
     fun disconnect() {
+        handler.removeCallbacksAndMessages(null)
         try {
             client?.disconnect()
         } catch (_: Exception) {}
