@@ -1,8 +1,8 @@
-name: Build APK
+name: Build and Release APK
 
 on:
   push:
-    branches: [ master ]
+    branches: [ master, main ]
     paths:
       - 'android/**'
       - '.github/workflows/**'
@@ -21,20 +21,32 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Install Gradle
-        run: |
-          wget -q https://services.gradle.org/distributions/gradle-8.5-bin.zip -O /tmp/gradle.zip
-          unzip -q /tmp/gradle.zip -d /opt/
-          echo "/opt/gradle-8.5/bin" >> $GITHUB_PATH
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Make gradlew executable
+        run: chmod +x android/gradlew
 
       - name: Build debug APK
         working-directory: android
-        run: gradle assembleDebug --no-daemon --stacktrace
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
 
-      - name: Upload APK
+      - name: Upload APK artifact
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: clipsync-debug-apk
           path: android/app/build/outputs/apk/debug/*.apk
           retention-days: 30
+
+      - name: Create Release
+        if: success()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.run_number }}
+          name: ClipSync Debug ${{ github.run_number }}
+          body: |
+            ClipSync Android Debug APK
+            Build: ${{ github.sha }}
+          files: android/app/build/outputs/apk/debug/*.apk
+          prerelease: true

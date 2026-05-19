@@ -6,8 +6,11 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -23,12 +26,20 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var prefs: PrefsHelper
     private lateinit var switchSync: SwitchMaterial
+    private lateinit var tvStatus: TextView
     private lateinit var etServer: TextInputEditText
     private lateinit var etTopic: TextInputEditText
     private lateinit var etUsername: TextInputEditText
     private lateinit var etPassword: TextInputEditText
     private lateinit var btnSave: MaterialButton
     private lateinit var btnMiuiGuide: MaterialButton
+    private val handler = Handler(Looper.getMainLooper())
+    private val statusUpdater = object : Runnable {
+        override fun run() {
+            updateStatus()
+            handler.postDelayed(this, 3000)
+        }
+    }
 
     private val notifPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -44,6 +55,7 @@ class MainActivity : AppCompatActivity() {
         prefs = PrefsHelper(this)
 
         switchSync = findViewById(R.id.switchSync)
+        tvStatus = findViewById(R.id.tvStatus)
         etServer = findViewById(R.id.etServer)
         etTopic = findViewById(R.id.etTopic)
         etUsername = findViewById(R.id.etUsername)
@@ -57,12 +69,33 @@ class MainActivity : AppCompatActivity() {
         checkBatteryOptimization()
     }
 
+    override fun onResume() {
+        super.onResume()
+        handler.post(statusUpdater)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        handler.removeCallbacks(statusUpdater)
+    }
+
+    private fun updateStatus() {
+        val running = prefs.serviceEnabled
+        val connected = prefs.mqttConnected
+        tvStatus.text = when {
+            !running -> "状态: 未启用"
+            connected -> "状态: 已连接"
+            else -> "状态: 未连接"
+        }
+    }
+
     private fun loadConfig() {
         etServer.setText(prefs.mqttServer)
         etTopic.setText(prefs.mqttTopic)
         etUsername.setText(prefs.mqttUsername)
         etPassword.setText(prefs.mqttPassword)
         switchSync.isChecked = prefs.serviceEnabled
+        updateStatus()
     }
 
     private fun setupListeners() {
@@ -82,6 +115,7 @@ class MainActivity : AppCompatActivity() {
                 ClipSyncService.stop(this)
                 Toast.makeText(this, "同步已关闭", Toast.LENGTH_SHORT).show()
             }
+            updateStatus()
         }
 
         btnMiuiGuide.setOnClickListener { openMiuiSettings() }

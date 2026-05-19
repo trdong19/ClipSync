@@ -26,4 +26,8 @@ class PrefsHelper(context: Context) {
     var serviceEnabled: Boolean
         get() = prefs.getBoolean("service_enabled", false)
         set(v) = prefs.edit().putBoolean("service_enabled", v).apply()
+
+    var mqttConnected: Boolean
+        get() = prefs.getBoolean("mqtt_connected", false)
+        set(v) = prefs.edit().putBoolean("mqtt_connected", v).apply()
 }

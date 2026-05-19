@@ -1,6 +1,7 @@
 package com.clipsync.mqtt
 
 import android.content.Context
+import android.util.Log
 import com.clipsync.model.Message
 import org.eclipse.paho.client.mqttv3.*
 import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence
@@ -12,13 +13,24 @@ class MqttManager(
 ) {
     private var client: MqttClient? = null
     private var connected = false
+    var onStateChanged: ((Boolean) -> Unit)? = null
+    private val prefs = PrefsHelper(context)
+
+    private fun setState(connected: Boolean) {
+        this.connected = connected
+        prefs.mqttConnected = connected
+        onStateChanged?.invoke(connected)
+    }
 
     fun connect() {
-        val prefs = PrefsHelper(context)
         val serverUri = prefs.mqttServer
         val topic = prefs.mqttTopic
 
-        if (serverUri.isBlank() || topic.isBlank()) return
+        if (serverUri.isBlank() || topic.isBlank()) {
+            Log.w("MqttManager", "服务器地址或Topic为空，跳过连接")
+            setState(false)
+            return
+        }
 
         try {
             val clientId = "android-${android.os.Build.MODEL}-${System.currentTimeMillis()}"
@@ -35,7 +47,8 @@ class MqttManager(
 
             client?.setCallback(object : MqttCallback {
                 override fun connectionLost(cause: Throwable?) {
-                    connected = false
+                    setState(false)
+                    Log.w("MqttManager", "连接断开: ${cause?.message}")
                 }
 
                 override fun messageArrived(topic: String?, message: MqttMessage?) {
@@ -51,14 +64,15 @@ class MqttManager(
 
             client?.connect(options)
             client?.subscribe(topic, 1)
-            connected = true
+            setState(true)
+            Log.i("MqttManager", "MQTT连接成功: $serverUri topic=$topic")
         } catch (e: MqttException) {
-            connected = false
+            setState(false)
+            Log.e("MqttManager", "MQTT连接失败: reasonCode=${e.reasonCode} message=${e.message}", e)
         }
     }
 
     fun publish(content: String) {
-        val prefs = PrefsHelper(context)
         val topic = prefs.mqttTopic
         if (!connected || topic.isBlank()) return
 
@@ -68,7 +82,7 @@ class MqttManager(
             mqttMsg.qos = 1
             client?.publish(topic, mqttMsg)
         } catch (e: MqttException) {
-            // 丢弃，下次剪贴板变化会重发
+            Log.e("MqttManager", "发布失败: ${e.message}")
         }
     }
 
@@ -76,7 +90,7 @@ class MqttManager(
         try {
             client?.disconnect()
         } catch (_: Exception) {}
-        connected = false
+        setState(false)
     }
 
     fun isConnected() = connected
