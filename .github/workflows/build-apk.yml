@@ -35,7 +35,8 @@ jobs:
       - name: Build debug APK
         working-directory: android
         run: |
-          java -jar gradle/wrapper/gradle-wrapper.jar :app:assembleDebug --no-daemon --stacktrace
+          cat gradle/wrapper/gradle-wrapper.properties
+          GRADLE_OPTS="" JAVA_OPTS="" DEFAULT_JVM_OPTS="" bash gradlew :app:assembleDebug --no-daemon --stacktrace
 
       - name: Upload APK artifact
         if: success()
