@@ -8,6 +8,8 @@ import org.eclipse.paho.client.mqttv3.*
 import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence
 import com.clipsync.util.LogHelper
 import com.clipsync.util.PrefsHelper
+import java.util.Timer
+import java.util.TimerTask
 
 class MqttManager(
     private val context: Context,
@@ -19,6 +21,7 @@ class MqttManager(
     private val prefs = PrefsHelper(context)
     private val handler = Handler(Looper.getMainLooper())
     private val TAG = "MQTT"
+    private var resubTimer: Timer? = null
 
     private fun setState(connected: Boolean) {
         this.connected = connected
@@ -37,14 +40,14 @@ class MqttManager(
         }
 
         try {
-            try { client?.disconnect() } catch (_: Exception) {}
+            disconnect()
 
             val clientId = "android-${android.os.Build.MODEL}-${System.currentTimeMillis()}"
             client = MqttClient(serverUri, clientId, MemoryPersistence())
 
             val options = MqttConnectOptions().apply {
-                isCleanSession = false
-                keepAliveInterval = 60
+                isCleanSession = true
+                keepAliveInterval = 30
                 connectionTimeout = 10
                 isAutomaticReconnect = true
                 userName = prefs.mqttUsername
@@ -78,19 +81,37 @@ class MqttManager(
             setState(true)
             LogHelper.i(TAG, "连接成功: $serverUri")
 
-            handler.postDelayed({
-                try {
-                    client?.subscribe(topic, 1)
-                    LogHelper.i(TAG, "订阅成功: topic=$topic")
-                } catch (e: Exception) {
-                    LogHelper.e(TAG, "订阅失败: ${e.message}")
-                }
-            }, 1000)
+            // 立即订阅
+            doSubscribe(topic)
+
+            // 每30秒重新订阅一次，防止订阅丢失
+            startResubTimer(topic)
 
         } catch (e: MqttException) {
             setState(false)
             LogHelper.e(TAG, "连接失败: code=${e.reasonCode} ${e.message}")
         }
+    }
+
+    private fun doSubscribe(topic: String) {
+        try {
+            client?.subscribe(topic, 1)
+            LogHelper.i(TAG, "订阅成功: topic=$topic")
+        } catch (e: Exception) {
+            LogHelper.e(TAG, "订阅失败: ${e.message}")
+        }
+    }
+
+    private fun startResubTimer(topic: String) {
+        resubTimer?.cancel()
+        resubTimer = Timer()
+        resubTimer?.schedule(object : TimerTask() {
+            override fun run() {
+                if (connected) {
+                    doSubscribe(topic)
+                }
+            }
+        }, 30000, 30000)
     }
 
     fun publish(content: String) {
@@ -109,10 +130,10 @@ class MqttManager(
     }
 
     fun disconnect() {
-        handler.removeCallbacksAndMessages(null)
+        resubTimer?.cancel()
+        resubTimer = null
         try { client?.disconnect() } catch (_: Exception) {}
         setState(false)
-        LogHelper.i(TAG, "已断开")
     }
 
     fun isConnected() = connected
