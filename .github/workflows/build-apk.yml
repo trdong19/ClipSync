@@ -34,12 +34,8 @@ jobs:
 
       - name: Build debug APK
         working-directory: android
-        run: bash gradlew :app:assembleDebug --no-daemon --stacktrace
-
-      - name: Check build output
-        if: always()
         run: |
-          find android/app/build -name "*.apk" 2>/dev/null || echo "No APK found"
+          java -jar gradle/wrapper/gradle-wrapper.jar :app:assembleDebug --no-daemon --stacktrace
 
       - name: Upload APK artifact
         if: success()
