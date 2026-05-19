@@ -1,7 +1,10 @@
 package com.clipsync.clipboard
 
+import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.util.Log
+import android.widget.Toast
 
 class ClipboardMonitor(
     private val context: Context,
@@ -38,8 +41,15 @@ class ClipboardMonitor(
     }
 
     fun setClip(text: String) {
-        lastContent = text
-        val clip = android.content.ClipData.newPlainText("ClipSync", text)
-        clipboard.setPrimaryClip(clip)
+        try {
+            lastContent = text
+            val clip = ClipData.newPlainText("ClipSync", text)
+            clipboard.setPrimaryClip(clip)
+            Log.i("ClipboardMonitor", "剪贴板写入成功: ${text.take(50)}")
+        } catch (e: Exception) {
+            Log.e("ClipboardMonitor", "剪贴板写入失败: ${e.message}", e)
+            // MIUI 可能需要通过 Toast 提示用户手动粘贴
+            Toast.makeText(context, "收到: $text", Toast.LENGTH_SHORT).show()
+        }
     }
 }

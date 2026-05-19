@@ -2,7 +2,6 @@ package com.clipsync.mqtt
 
 import android.content.Context
 import android.util.Log
-import com.google.gson.JsonParser
 import com.clipsync.model.Message
 import org.eclipse.paho.client.mqttv3.*
 import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence
@@ -54,19 +53,15 @@ class MqttManager(
 
                 override fun messageArrived(topic: String?, message: MqttMessage?) {
                     val payload = message?.toString() ?: return
-                    try {
-                        val json = JsonParser.parseString(payload).asJsonObject
-                        val text = when {
-                            json.has("content") -> json.get("content").asString
-                            json.has("value") -> json.get("value").asString
-                            else -> null
-                        }
-                        if (!text.isNullOrBlank()) {
-                            Log.d("MqttManager", "收到消息: $text")
-                            onMessage(text)
-                        }
-                    } catch (e: Exception) {
-                        Log.w("MqttManager", "消息解析失败: ${e.message}")
+                    Log.i("MqttManager", "收到MQTT消息: ${payload.take(100)}")
+                    val msg = Message.fromJson(payload)
+                    if (msg == null) {
+                        Log.w("MqttManager", "消息解析失败: $payload")
+                        return
+                    }
+                    if (msg.type == "clip") {
+                        Log.i("MqttManager", "写入剪贴板: ${msg.content.take(50)}")
+                        onMessage(msg.content)
                     }
                 }
 
