@@ -3,10 +3,10 @@ package com.clipsync.mqtt
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
-import android.util.Log
 import com.clipsync.model.Message
 import org.eclipse.paho.client.mqttv3.*
 import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence
+import com.clipsync.util.LogHelper
 import com.clipsync.util.PrefsHelper
 
 class MqttManager(
@@ -18,6 +18,7 @@ class MqttManager(
     var onStateChanged: ((Boolean) -> Unit)? = null
     private val prefs = PrefsHelper(context)
     private val handler = Handler(Looper.getMainLooper())
+    private val TAG = "MQTT"
 
     private fun setState(connected: Boolean) {
         this.connected = connected
@@ -30,13 +31,12 @@ class MqttManager(
         val topic = prefs.mqttTopic
 
         if (serverUri.isBlank() || topic.isBlank()) {
-            Log.w("MqttManager", "服务器地址或Topic为空，跳过连接")
+            LogHelper.w(TAG, "服务器地址或Topic为空，跳过连接")
             setState(false)
             return
         }
 
         try {
-            // 断开旧连接
             try { client?.disconnect() } catch (_: Exception) {}
 
             val clientId = "android-${android.os.Build.MODEL}-${System.currentTimeMillis()}"
@@ -54,19 +54,19 @@ class MqttManager(
             client?.setCallback(object : MqttCallback {
                 override fun connectionLost(cause: Throwable?) {
                     setState(false)
-                    Log.w("MqttManager", "连接断开: ${cause?.message}")
+                    LogHelper.w(TAG, "连接断开: ${cause?.message}")
                 }
 
                 override fun messageArrived(topic: String?, message: MqttMessage?) {
                     val payload = message?.toString() ?: return
-                    Log.i("MqttManager", "收到MQTT消息: ${payload.take(100)}")
+                    LogHelper.i(TAG, "<< 收到: ${payload.take(100)}")
                     val msg = Message.fromJson(payload)
                     if (msg == null) {
-                        Log.w("MqttManager", "消息解析失败: $payload")
+                        LogHelper.w(TAG, "消息解析失败: $payload")
                         return
                     }
                     if (msg.type == "clip") {
-                        Log.i("MqttManager", "写入剪贴板: ${msg.content.take(50)}")
+                        LogHelper.i(TAG, "写入剪贴板: ${msg.content.take(50)}")
                         onMessage(msg.content)
                     }
                 }
@@ -76,21 +76,20 @@ class MqttManager(
 
             client?.connect(options)
             setState(true)
-            Log.i("MqttManager", "MQTT连接成功: $serverUri topic=$topic")
+            LogHelper.i(TAG, "连接成功: $serverUri")
 
-            // 延迟订阅，确保连接完全建立
             handler.postDelayed({
                 try {
                     client?.subscribe(topic, 1)
-                    Log.i("MqttManager", "订阅成功: $topic")
+                    LogHelper.i(TAG, "订阅成功: topic=$topic")
                 } catch (e: Exception) {
-                    Log.e("MqttManager", "订阅失败: ${e.message}")
+                    LogHelper.e(TAG, "订阅失败: ${e.message}")
                 }
             }, 1000)
 
         } catch (e: MqttException) {
             setState(false)
-            Log.e("MqttManager", "MQTT连接失败: reasonCode=${e.reasonCode} message=${e.message}", e)
+            LogHelper.e(TAG, "连接失败: code=${e.reasonCode} ${e.message}")
         }
     }
 
@@ -103,17 +102,17 @@ class MqttManager(
             val mqttMsg = MqttMessage(msg.toJson().toByteArray())
             mqttMsg.qos = 1
             client?.publish(topic, mqttMsg)
+            LogHelper.i(TAG, ">> 发送: ${content.take(50)}")
         } catch (e: MqttException) {
-            Log.e("MqttManager", "发布失败: ${e.message}")
+            LogHelper.e(TAG, "发送失败: ${e.message}")
         }
     }
 
     fun disconnect() {
         handler.removeCallbacksAndMessages(null)
-        try {
-            client?.disconnect()
-        } catch (_: Exception) {}
+        try { client?.disconnect() } catch (_: Exception) {}
         setState(false)
+        LogHelper.i(TAG, "已断开")
     }
 
     fun isConnected() = connected

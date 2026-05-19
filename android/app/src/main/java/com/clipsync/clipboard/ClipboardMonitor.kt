@@ -3,8 +3,8 @@ package com.clipsync.clipboard
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.util.Log
 import android.widget.Toast
+import com.clipsync.util.LogHelper
 
 class ClipboardMonitor(
     private val context: Context,
@@ -13,6 +13,7 @@ class ClipboardMonitor(
     private val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     private var lastContent: String? = null
     private var listening = false
+    private val TAG = "CLIP"
 
     private val listener = ClipboardManager.OnPrimaryClipChangedListener {
         readClip()
@@ -22,6 +23,7 @@ class ClipboardMonitor(
         if (listening) return
         clipboard.addPrimaryClipChangedListener(listener)
         listening = true
+        LogHelper.i(TAG, "剪贴板监听已启动")
     }
 
     fun stop() {
@@ -37,6 +39,7 @@ class ClipboardMonitor(
         val text = clip.getItemAt(0).text?.toString() ?: return
         if (text == lastContent) return
         lastContent = text
+        LogHelper.i(TAG, "检测到复制: ${text.take(50)}")
         onClipChanged(text)
     }
 
@@ -45,10 +48,9 @@ class ClipboardMonitor(
             lastContent = text
             val clip = ClipData.newPlainText("ClipSync", text)
             clipboard.setPrimaryClip(clip)
-            Log.i("ClipboardMonitor", "剪贴板写入成功: ${text.take(50)}")
+            LogHelper.i(TAG, "写入成功: ${text.take(50)}")
         } catch (e: Exception) {
-            Log.e("ClipboardMonitor", "剪贴板写入失败: ${e.message}", e)
-            // MIUI 可能需要通过 Toast 提示用户手动粘贴
+            LogHelper.e(TAG, "写入失败: ${e.message}")
             Toast.makeText(context, "收到: $text", Toast.LENGTH_SHORT).show()
         }
     }

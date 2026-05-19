@@ -143,5 +143,12 @@
             android:text="小米/MIUI 电池优化设置"
             android:layout_marginBottom="8dp" />
 
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnLogs"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="查看运行日志" />
+
     </LinearLayout>
 </ScrollView>

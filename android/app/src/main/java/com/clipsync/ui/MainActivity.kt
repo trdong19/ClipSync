@@ -33,6 +33,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etPassword: TextInputEditText
     private lateinit var btnSave: MaterialButton
     private lateinit var btnMiuiGuide: MaterialButton
+    private lateinit var btnLogs: MaterialButton
     private val handler = Handler(Looper.getMainLooper())
     private val statusUpdater = object : Runnable {
         override fun run() {
@@ -62,6 +63,7 @@ class MainActivity : AppCompatActivity() {
         etPassword = findViewById(R.id.etPassword)
         btnSave = findViewById(R.id.btnSave)
         btnMiuiGuide = findViewById(R.id.btnMiuiGuide)
+        btnLogs = findViewById(R.id.btnLogs)
 
         loadConfig()
         setupListeners()
@@ -119,6 +121,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         btnMiuiGuide.setOnClickListener { openMiuiSettings() }
+        btnLogs.setOnClickListener { startActivity(Intent(this, LogActivity::class.java)) }
     }
 
     private fun saveConfig() {
