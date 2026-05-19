@@ -33,11 +33,13 @@ jobs:
           sdkmanager "platforms;android-34" "build-tools;34.0.0"
 
       - name: Build debug APK
+        working-directory: android
+        run: bash gradlew :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Check build output
+        if: always()
         run: |
-          cd android
-          sed -i 's/\r$//' gradlew
-          chmod +x gradlew
-          ./gradlew :app:assembleDebug --no-daemon --stacktrace
+          find android/app/build -name "*.apk" 2>/dev/null || echo "No APK found"
 
       - name: Upload APK artifact
         if: success()
