@@ -52,13 +52,25 @@ class ClipSync:
 
     # 用于响应服务器端 PUBLISH 消息的 callback，打印消息主题和内容
     def on_message(self, client, userdata, msg):
-        data = json.loads(msg.payload)
-        if data["id"] != sysuuid:
-            # 在这里处理接收到的消息，例如：过滤、分发、回调、确认、加密、解密、签名等
-            print(f"收到 【{data['name']}】 发送的信息 >>> {data['value']}")
-            self.reduplicates[sysuuid] = data["value"]
-            self.deque.append(data)
-            self.clip.copy(data["value"])
+        try:
+            data = json.loads(msg.payload)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return
+
+        # Windows 格式: {"id": "...", "name": "...", "value": "..."}
+        if "value" in data and "id" in data:
+            if data["id"] != sysuuid:
+                print(f"收到 【{data['name']}】 发送的信息 >>> {data['value']}")
+                self.reduplicates[sysuuid] = data["value"]
+                self.deque.append(data)
+                self.clip.copy(data["value"])
+        # Android 格式: {"type": "clip", "content": "..."}
+        elif data.get("type") == "clip":
+            content = data["content"]
+            print(f"收到 Android 发送的信息 >>> {content}")
+            self.reduplicates[sysuuid] = content
+            self.deque.append({"value": content, "name": "Android", "id": "android"})
+            self.clip.copy(content)
 
     # 在订阅获得服务器响应后，从为响应列表中删除该消息 id
     def on_subscribe(self, client, userdata, mid, granted_qos):
