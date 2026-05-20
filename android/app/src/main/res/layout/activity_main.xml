@@ -42,7 +42,25 @@
             android:layout_height="wrap_content"
             android:text="状态: 未连接"
             android:textSize="14sp"
-            android:layout_marginBottom="32dp" />
+            android:layout_marginBottom="8dp" />
+
+        <!-- 无障碍状态 -->
+        <TextView
+            android:id="@+id/tvAccessibility"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="无障碍服务: 未开启"
+            android:textSize="14sp"
+            android:textColor="#FF5722"
+            android:layout_marginBottom="8dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnAccessibility"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="开启无障碍服务（后台同步需要）"
+            android:layout_marginBottom="24dp" />
 
         <!-- MQTT 配置 -->
         <TextView

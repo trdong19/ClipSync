@@ -1,19 +1,32 @@
 package com.clipsync.service
 
 import android.app.*
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import com.clipsync.clipboard.ClipboardMonitor
 import com.clipsync.mqtt.MqttManager
 import com.clipsync.ui.MainActivity
+import com.clipsync.util.LogHelper
 
 class ClipSyncService : Service() {
 
     private lateinit var clipboardMonitor: ClipboardMonitor
     private lateinit var mqttManager: MqttManager
     private var isRunning = false
+    private val TAG = "SERVICE"
+
+    private val clipReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            val text = intent?.getStringExtra(ClipAccessibilityService.EXTRA_CLIP_TEXT) ?: return
+            LogHelper.i(TAG, "无障碍检测到复制: ${text.take(50)}")
+            mqttManager.publish(text)
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -22,6 +35,14 @@ class ClipSyncService : Service() {
         }
         mqttManager = MqttManager(this) { text ->
             clipboardMonitor.setClip(text)
+        }
+
+        // 注册无障碍服务的剪贴板广播
+        val filter = IntentFilter(ClipAccessibilityService.ACTION_CLIP_CHANGED)
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(clipReceiver, filter, RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(clipReceiver, filter)
         }
     }
 
@@ -44,6 +65,7 @@ class ClipSyncService : Service() {
     }
 
     override fun onDestroy() {
+        try { unregisterReceiver(clipReceiver) } catch (_: Exception) {}
         clipboardMonitor.stop()
         mqttManager.disconnect()
         isRunning = false
@@ -83,7 +105,7 @@ class ClipSyncService : Service() {
         private const val CHANNEL_ID = "clipsync_service"
         private const val NOTIF_ID = 1001
 
-        fun start(context: android.content.Context) {
+        fun start(context: Context) {
             val intent = Intent(context, ClipSyncService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
@@ -92,7 +114,7 @@ class ClipSyncService : Service() {
             }
         }
 
-        fun stop(context: android.content.Context) {
+        fun stop(context: Context) {
             context.stopService(Intent(context, ClipSyncService::class.java))
         }
     }

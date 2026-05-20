@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">ClipSync</string>
+    <string name="accessibility_desc">ClipSync 无障碍服务用于在后台监听剪贴板变化，实现跨设备剪贴板同步。此服务仅检测文本复制操作，不会读取其他隐私信息。</string>
 </resources>
