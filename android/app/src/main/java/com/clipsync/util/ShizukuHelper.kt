@@ -1,9 +1,10 @@
 package com.clipsync.util
 
-import android.app.AppOpsManager
 import android.content.Context
 import android.content.pm.PackageManager
 import rikka.shizuku.Shizuku
+import java.io.BufferedReader
+import java.io.InputStreamReader
 
 class ShizukuHelper(private val context: Context) {
 
@@ -31,9 +32,6 @@ class ShizukuHelper(private val context: Context) {
         Shizuku.requestPermission(1001)
     }
 
-    /**
-     * 通过 Shizuku 获取 shell 权限进程执行 appops 命令
-     */
     fun grantClipboardPermission(callback: Callback) {
         if (!isShizukuAvailable()) {
             callback.onError("Shizuku 未运行，请先安装并启动 Shizuku")
@@ -47,57 +45,63 @@ class ShizukuHelper(private val context: Context) {
 
         try {
             val packageName = context.packageName
-            val command = "appops set $packageName $OPSTR_READ_CLIPBOARD_IN_BACKGROUND allow"
+            val command = "appops set $packageName READ_CLIPBOARD_IN_BACKGROUND allow"
 
-            // 尝试通过反射使用 ShizukuRemoteProcess
-            val success = execViaShizuku(command)
+            // 通过反射调用 Shizuku.newProcess
+            val process = createShizukuProcess(arrayOf("sh", "-c", command))
+            if (process != null) {
+                // 反射获取 inputStream 和 errorStream
+                val getStream = { name: String ->
+                    val method = process.javaClass.getMethod(name)
+                    val stream = method.invoke(process) as java.io.InputStream
+                    BufferedReader(InputStreamReader(stream)).readText()
+                }
 
-            if (success) {
-                LogHelper.i(TAG, "后台剪贴板权限授予成功")
-                callback.onSuccess("后台剪贴板权限已开启，请重启同步服务")
+                val output = getStream("getInputStream")
+                val error = getStream("getErrorStream")
+
+                // 反射调用 waitFor
+                val waitForMethod = process.javaClass.getMethod("waitFor")
+                val exitCode = waitForMethod.invoke(process) as Int
+
+                if (output.isNotEmpty()) LogHelper.i(TAG, "stdout: $output")
+                if (error.isNotEmpty()) LogHelper.w(TAG, "stderr: $error")
+
+                if (exitCode == 0) {
+                    LogHelper.i(TAG, "权限授予成功")
+                    callback.onSuccess("后台剪贴板权限已开启，请重启同步服务")
+                } else {
+                    LogHelper.e(TAG, "命令执行失败 exitCode=$exitCode")
+                    callback.onError("执行失败: ${error.ifEmpty { "exit code $exitCode" }}")
+                }
             } else {
-                // 备选方案：直接调用 AppOpsManager.setUidMode（需要 Shizuku 运行中）
-                val uid = context.packageManager.getApplicationInfo(packageName, 0).uid
-                val method = AppOpsManager::class.java.getDeclaredMethod(
-                    "setUidMode",
-                    String::class.java,
-                    Int::class.javaPrimitiveType,
-                    Int::class.javaPrimitiveType
-                )
-                method.isAccessible = true
-                method.invoke(null, OPSTR_READ_CLIPBOARD_IN_BACKGROUND, uid, 0)
-                LogHelper.i(TAG, "通过 setUidMode 授权成功")
-                callback.onSuccess("后台剪贴板权限已开启，请重启同步服务")
+                callback.onError("无法创建 Shizuku 进程，请检查 Shizuku 是否正常运行")
             }
         } catch (e: Exception) {
-            LogHelper.e(TAG, "授权失败: ${e.message}")
-            callback.onError("授权失败: ${e.message}")
+            LogHelper.e(TAG, "授权异常: ${e.message}")
+            callback.onError("授权异常: ${e.message}")
         }
     }
 
-    private fun execViaShizuku(command: String): Boolean {
+    /**
+     * 通过反射调用 Shizuku.newProcess 创建特权进程
+     */
+    private fun createShizukuProcess(cmd: Array<String>): Any? {
         return try {
-            // 反射调用 Shizuku.newProcess
-            val shizukuClass = Shizuku::class.java
-            val method = shizukuClass.getDeclaredMethod(
+            val method = Shizuku::class.java.getDeclaredMethod(
                 "newProcess",
                 Array<String>::class.java,
                 Array<String>::class.java,
                 String::class.java
             )
             method.isAccessible = true
-            val process = method.invoke(null, arrayOf("sh", "-c", command), null, null)
-            // 反射调用 waitFor()
-            val waitForMethod = process!!.javaClass.getMethod("waitFor")
-            val exitCode = waitForMethod.invoke(process) as Int
-            exitCode == 0
+            method.invoke(null, cmd, null, null)
+        } catch (e: NoSuchMethodException) {
+            LogHelper.w(TAG, "Shizuku.newProcess 方法不存在: ${e.message}")
+            null
         } catch (e: Exception) {
-            LogHelper.w(TAG, "ShizukuRemoteProcess 不可用: ${e.message}")
-            false
+            LogHelper.w(TAG, "Shizuku.newProcess 调用失败: ${e.message}")
+            null
         }
-    }
-
-    companion object {
-        private const val OPSTR_READ_CLIPBOARD_IN_BACKGROUND = "READ_CLIPBOARD_IN_BACKGROUND"
     }
 }
