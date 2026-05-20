@@ -3,7 +3,6 @@ package com.clipsync.util
 import android.app.AppOpsManager
 import android.content.Context
 import android.content.pm.PackageManager
-import android.os.Binder
 import rikka.shizuku.Shizuku
 
 class ShizukuHelper(private val context: Context) {
@@ -78,7 +77,7 @@ class ShizukuHelper(private val context: Context) {
 
     private fun execViaShizuku(command: String): Boolean {
         return try {
-            // 反射调用 Shizuku.newProcess (API 可能是 private 但实际可调用)
+            // 反射调用 Shizuku.newProcess
             val shizukuClass = Shizuku::class.java
             val method = shizukuClass.getDeclaredMethod(
                 "newProcess",
@@ -88,8 +87,9 @@ class ShizukuHelper(private val context: Context) {
             )
             method.isAccessible = true
             val process = method.invoke(null, arrayOf("sh", "-c", command), null, null)
-                as android.os.Process
-            val exitCode = process.waitFor()
+            // 反射调用 waitFor()
+            val waitForMethod = process!!.javaClass.getMethod("waitFor")
+            val exitCode = waitForMethod.invoke(process) as Int
             exitCode == 0
         } catch (e: Exception) {
             LogHelper.w(TAG, "ShizukuRemoteProcess 不可用: ${e.message}")
