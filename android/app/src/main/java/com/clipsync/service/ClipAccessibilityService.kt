@@ -5,10 +5,11 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
-import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
+import android.os.Build
 import android.view.accessibility.AccessibilityEvent
 import com.clipsync.mqtt.MqttManager
 import com.clipsync.ui.MainActivity
@@ -21,23 +22,18 @@ class ClipAccessibilityService : AccessibilityService() {
     private var lastClipText: String? = null
     private var mqttManager: MqttManager? = null
 
-    private val clipListener = ClipboardManager.OnPrimaryClipChangedListener {
-        LogHelper.i(TAG, "OnPrimaryClipChangedListener 触发")
-        handleClipChange()
-    }
-
     override fun onServiceConnected() {
-        LogHelper.i(TAG, "无障碍服务已连接，注册剪贴板监听")
-        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        clipboard.addPrimaryClipChangedListener(clipListener)
+        LogHelper.i(TAG, "无障碍服务已连接")
         connectMqtt()
         startStickyNotification()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        // 记录所有事件用于诊断
-        event?.let {
-            LogHelper.i(TAG, "收到无障碍事件: type=${it.eventType}")
+        event ?: return
+        // 长按（type=2）是复制操作的信号，立即检查剪贴板
+        if (event.eventType == AccessibilityEvent.TYPE_VIEW_LONG_CLICKED) {
+            LogHelper.i(TAG, "检测到长按事件，检查剪贴板")
+            checkClipboard()
         }
     }
 
@@ -48,52 +44,32 @@ class ClipAccessibilityService : AccessibilityService() {
             return
         }
         mqttManager = MqttManager(this) { text ->
-            LogHelper.i(TAG, "收到MQTT消息写入剪贴板: ${text.take(50)}")
+            LogHelper.i(TAG, "收到MQTT消息: ${text.take(50)}")
         }
         mqttManager?.connect()
     }
 
-    private fun handleClipChange() {
+    private fun checkClipboard() {
         val prefs = PrefsHelper(this)
-        if (!prefs.serviceEnabled) {
-            LogHelper.w(TAG, "同步未启用，跳过")
-            return
-        }
+        if (!prefs.serviceEnabled) return
 
         try {
             val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
 
-            // 诊断：检查剪贴板是否可用
-            val hasClip = clipboard.hasPrimaryClip()
-            LogHelper.i(TAG, "hasPrimaryClip=$hasClip")
-
-            if (!hasClip) {
-                LogHelper.w(TAG, "无法读取剪贴板（可能被系统限制）")
+            if (!clipboard.hasPrimaryClip()) {
+                LogHelper.w(TAG, "hasPrimaryClip=false，系统阻止了读取")
                 return
             }
 
             val clip = clipboard.primaryClip
-            if (clip == null || clip.itemCount == 0) {
-                LogHelper.w(TAG, "剪贴板内容为空")
-                return
-            }
+            if (clip == null || clip.itemCount == 0) return
 
-            val text = clip.getItemAt(0).text?.toString()
-            if (text == null) {
-                LogHelper.w(TAG, "剪贴板文本为null")
-                return
-            }
-
-            // 避免重复发送相同内容
-            if (text == lastClipText) {
-                LogHelper.i(TAG, "内容相同，跳过")
-                return
-            }
+            val text = clip.getItemAt(0).text?.toString() ?: return
+            if (text == lastClipText) return
             lastClipText = text
 
-            LogHelper.i(TAG, "剪贴板内容: ${text.take(50)}")
+            LogHelper.i(TAG, "读取到剪贴板: ${text.take(50)}")
 
-            // 确保MQTT已连接
             if (mqttManager == null || !mqttManager!!.isConnected()) {
                 LogHelper.w(TAG, "MQTT未连接，尝试重连")
                 connectMqtt()
@@ -101,7 +77,7 @@ class ClipAccessibilityService : AccessibilityService() {
 
             mqttManager?.publish(text)
         } catch (e: SecurityException) {
-            LogHelper.e(TAG, "安全异常 - 剪贴板读取被系统拒绝: ${e.message}")
+            LogHelper.e(TAG, "SecurityException - 剪贴板读取被拒绝: ${e.message}")
         } catch (e: Exception) {
             LogHelper.e(TAG, "剪贴板处理失败: ${e.message}")
         }
@@ -117,23 +93,24 @@ class ClipAccessibilityService : AccessibilityService() {
                 channelId,
                 "ClipSync 无障碍服务",
                 NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                setShowBadge(false)
-            }
-            val nm = getSystemService(NotificationManager::class.java)
-            nm.createNotificationChannel(channel)
+            ).apply { setShowBadge(false) }
+            getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
 
             val intent = Intent(this, MainActivity::class.java)
             val pi = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_IMMUTABLE)
             val notification = Notification.Builder(this, channelId)
                 .setContentTitle("ClipSync")
-                .setContentText("无障碍剪贴板监听运行中")
+                .setContentText("无障碍监听运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_share)
                 .setContentIntent(pi)
                 .setOngoing(true)
                 .build()
 
-            startForeground(1002, notification)
+            if (Build.VERSION.SDK_INT >= 34) {
+                startForeground(1002, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+            } else {
+                startForeground(1002, notification)
+            }
             LogHelper.i(TAG, "常驻通知已启动")
         } catch (e: Exception) {
             LogHelper.w(TAG, "启动常驻通知失败: ${e.message}")
@@ -145,10 +122,6 @@ class ClipAccessibilityService : AccessibilityService() {
     }
 
     override fun onDestroy() {
-        try {
-            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            clipboard.removePrimaryClipChangedListener(clipListener)
-        } catch (_: Exception) {}
         mqttManager?.disconnect()
         LogHelper.i(TAG, "无障碍服务已销毁")
         super.onDestroy()
