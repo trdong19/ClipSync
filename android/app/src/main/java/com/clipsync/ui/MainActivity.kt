@@ -181,22 +181,26 @@ class MainActivity : AppCompatActivity() {
             shizukuHelper = ShizukuHelper(this)
         }
         val helper = shizukuHelper!!
-        val command = helper.getAdbCommand()
 
-        val shizukuStatus = if (helper.isShizukuAvailable()) "已运行" else "未运行"
-
-        val message = "Shizuku 状态: $shizukuStatus\n\n" +
-                "请将以下命令粘贴到 Shizuku 终端或电脑 ADB 执行:\n\n$command\n\n" +
-                "执行后需要重启 ClipSync 同步服务"
-
-        android.app.AlertDialog.Builder(this)
-            .setTitle("解锁后台剪贴板权限")
-            .setMessage(message)
-            .setPositiveButton("复制命令") { _, _ ->
-                helper.copyCommandToClipboard()
+        helper.grantClipboardPermission(object : ShizukuHelper.Callback {
+            override fun onSuccess(message: String) {
+                runOnUiThread {
+                    Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
+                }
             }
-            .setNegativeButton("取消", null)
-            .show()
+
+            override fun onError(message: String) {
+                runOnUiThread {
+                    Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
+                }
+            }
+
+            override fun onNeedPermission() {
+                runOnUiThread {
+                    helper.requestPermission(this@MainActivity)
+                }
+            }
+        })
     }
 
     private fun openMiuiSettings() {

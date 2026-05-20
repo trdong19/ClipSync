@@ -52,6 +52,14 @@
             </intent-filter>
         </receiver>
 
+        <!-- Shizuku Provider (required for Shizuku SDK to detect Shizuku) -->
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:multiprocess="false"
+            android:enabled="true"
+            android:exported="true" />
+
     </application>
 
 </manifest>
