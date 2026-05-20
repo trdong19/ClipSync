@@ -40,6 +40,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnMiuiGuide: MaterialButton
     private lateinit var btnShizuku: MaterialButton
     private lateinit var btnLogs: MaterialButton
+    private var shizukuHelper: ShizukuHelper? = null
     private val handler = Handler(Looper.getMainLooper())
     private val shizukuPermCode = 1001
     private val shizukuPermListener = Shizuku.OnRequestPermissionResultListener { code, grantResult ->
@@ -101,6 +102,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         Shizuku.removeRequestPermissionResultListener(shizukuPermListener)
+        shizukuHelper?.destroy()
         super.onDestroy()
     }
 
@@ -175,7 +177,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun grantShizukuPermission() {
-        val helper = ShizukuHelper(this)
+        if (shizukuHelper == null) {
+            shizukuHelper = ShizukuHelper(this)
+        }
+        val helper = shizukuHelper!!
 
         if (!helper.isShizukuAvailable()) {
             Toast.makeText(this, "Shizuku 未运行，请先安装并启动 Shizuku", Toast.LENGTH_LONG).show()
