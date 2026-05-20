@@ -4,8 +4,6 @@ import android.app.AppOpsManager
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Binder
-import android.os.IBinder
-import com.clipsync.BuildConfig
 import rikka.shizuku.Shizuku
 
 class ShizukuHelper(private val context: Context) {
@@ -35,8 +33,7 @@ class ShizukuHelper(private val context: Context) {
     }
 
     /**
-     * 通过 Shizuku binder 身份直接调用 AppOpsManager.setUidMode
-     * 无需 AIDL，无需 shell 命令
+     * 通过 Shizuku 获取 shell 权限进程执行 appops 命令
      */
     fun grantClipboardPermission(callback: Callback) {
         if (!isShizukuAvailable()) {
@@ -51,16 +48,17 @@ class ShizukuHelper(private val context: Context) {
 
         try {
             val packageName = context.packageName
-            val uid = context.packageManager.getApplicationInfo(packageName, 0).uid
+            val command = "appops set $packageName $OPSTR_READ_CLIPBOARD_IN_BACKGROUND allow"
 
-            // 使用 Shizuku binder 身份执行 AppOps 调用
-            val token: IBinder = Binder()
-            val orig = Binder.clearCallingIdentity()
-            try {
-                Binder.restoreCallingIdentity(Shizuku.getBinderToken())
-                val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
+            // 尝试通过反射使用 ShizukuRemoteProcess
+            val success = execViaShizuku(command)
 
-                // 反射调用隐藏 API: AppOpsManager.setUidMode(op, uid, mode)
+            if (success) {
+                LogHelper.i(TAG, "后台剪贴板权限授予成功")
+                callback.onSuccess("后台剪贴板权限已开启，请重启同步服务")
+            } else {
+                // 备选方案：直接调用 AppOpsManager.setUidMode（需要 Shizuku 运行中）
+                val uid = context.packageManager.getApplicationInfo(packageName, 0).uid
                 val method = AppOpsManager::class.java.getDeclaredMethod(
                     "setUidMode",
                     String::class.java,
@@ -68,16 +66,34 @@ class ShizukuHelper(private val context: Context) {
                     Int::class.javaPrimitiveType
                 )
                 method.isAccessible = true
-                method.invoke(appOps, OPSTR_READ_CLIPBOARD_IN_BACKGROUND, uid, 0) // 0 = MODE_ALLOWED
-
-                LogHelper.i(TAG, "后台剪贴板权限授予成功 uid=$uid")
+                method.invoke(null, OPSTR_READ_CLIPBOARD_IN_BACKGROUND, uid, 0)
+                LogHelper.i(TAG, "通过 setUidMode 授权成功")
                 callback.onSuccess("后台剪贴板权限已开启，请重启同步服务")
-            } finally {
-                Binder.restoreCallingIdentity(orig)
             }
         } catch (e: Exception) {
             LogHelper.e(TAG, "授权失败: ${e.message}")
             callback.onError("授权失败: ${e.message}")
+        }
+    }
+
+    private fun execViaShizuku(command: String): Boolean {
+        return try {
+            // 反射调用 Shizuku.newProcess (API 可能是 private 但实际可调用)
+            val shizukuClass = Shizuku::class.java
+            val method = shizukuClass.getDeclaredMethod(
+                "newProcess",
+                Array<String>::class.java,
+                Array<String>::class.java,
+                String::class.java
+            )
+            method.isAccessible = true
+            val process = method.invoke(null, arrayOf("sh", "-c", command), null, null)
+                as android.os.Process
+            val exitCode = process.waitFor()
+            exitCode == 0
+        } catch (e: Exception) {
+            LogHelper.w(TAG, "ShizukuRemoteProcess 不可用: ${e.message}")
+            false
         }
     }
 

@@ -102,7 +102,6 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         Shizuku.removeRequestPermissionResultListener(shizukuPermListener)
-        shizukuHelper?.destroy()
         super.onDestroy()
     }
 
