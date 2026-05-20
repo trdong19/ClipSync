@@ -57,9 +57,10 @@ install_system_deps() {
 setup_venv() {
     echo -e "${YELLOW}[*] 设置虚拟环境...${NC}"
 
-    if [ -d "venv" ]; then
+    if [ -f "venv/bin/activate" ]; then
         echo "[*] 虚拟环境已存在，跳过创建"
     else
+        rm -rf venv
         python3 -m venv venv
         echo "[*] 虚拟环境创建成功"
     fi
