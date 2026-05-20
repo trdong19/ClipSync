@@ -5,8 +5,6 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
-import android.content.ClipboardManager
-import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
@@ -31,96 +29,100 @@ class ClipAccessibilityService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         event ?: return
+        val prefs = PrefsHelper(this)
+        if (!prefs.serviceEnabled) return
+
         when (event.eventType) {
-            // 长按 → 可能是复制操作，检查剪贴板
             AccessibilityEvent.TYPE_VIEW_LONG_CLICKED -> {
-                LogHelper.i(TAG, "检测到长按，检查剪贴板")
-                // 延迟一小段时间等待复制操作完成
+                LogHelper.i(TAG, "长按事件")
+                // 延迟检查节点树中的选中文本
                 android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                    checkClipboard()
-                }, 500)
+                    checkSelectedTextFromRoot()
+                }, 300)
             }
-            // 窗口内容变化 → 可能是文本选择变化
-            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
-            AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED -> {
-                checkSelectedText(event)
+            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> {
+                // 不频繁检查，只在长按后检查
             }
         }
     }
 
     /**
-     * 方法1：从无障碍节点树直接读取选中的文本
-     * 不依赖ClipboardManager，绕过系统限制
+     * 从根节点遍历查找选中的文本
+     * 不依赖 ClipboardManager，直接从 UI 节点树读取
      */
-    private fun checkSelectedText(event: AccessibilityEvent) {
-        val prefs = PrefsHelper(this)
-        if (!prefs.serviceEnabled) return
-
+    private fun checkSelectedTextFromRoot() {
         try {
-            val source = event.source ?: return
-            val selectedText = source.getText()
+            val rootNode = rootInActiveWindow
+            if (rootNode == null) {
+                LogHelper.w(TAG, "rootInActiveWindow=null，无法读取节点树")
+                return
+            }
+
+            val selectedText = findSelectedText(rootNode)
+            rootNode.recycle()
+
             if (selectedText.isNullOrEmpty()) {
-                source.recycle()
+                LogHelper.i(TAG, "节点树中未找到选中文本")
                 return
             }
 
-            val text = selectedText.toString()
-            if (text == lastSentText) {
-                source.recycle()
+            if (selectedText == lastSentText) {
+                LogHelper.i(TAG, "内容相同，跳过")
                 return
             }
+            lastSentText = selectedText
 
-            // 检查是否有选中的文本范围
-            val selStart = source.textSelectionStart
-            val selEnd = source.textSelectionEnd
-            if (selStart >= 0 && selEnd > selStart && selEnd <= text.length) {
-                val selected = text.substring(selStart, selEnd)
-                if (selected.length > 1 && selected != lastSentText) {
-                    lastSentText = selected
-                    LogHelper.i(TAG, "从节点树读取选中文本: ${selected.take(50)}")
-                    publishToMqtt(selected)
+            LogHelper.i(TAG, "从节点树读取选中文本: ${selectedText.take(50)}")
+            publishToMqtt(selectedText)
+        } catch (e: Exception) {
+            LogHelper.e(TAG, "读取节点树失败: ${e.message}")
+        }
+    }
+
+    /**
+     * 递归遍历无障碍节点树，查找选中的文本
+     */
+    private fun findSelectedText(node: AccessibilityNodeInfo): String? {
+        try {
+            // 检查当前节点是否有选中的文本
+            if (node.isFocused && node.textSelectionStart >= 0 && node.textSelectionEnd > node.textSelectionStart) {
+                val text = node.text?.toString()
+                if (!text.isNullOrEmpty()) {
+                    val selected = text.substring(node.textSelectionStart, node.textSelectionEnd)
+                    if (selected.length > 1) {
+                        return selected
+                    }
                 }
             }
-            source.recycle()
-        } catch (e: Exception) {
-            LogHelper.w(TAG, "读取选中文本失败: ${e.message}")
-        }
-    }
 
-    /**
-     * 方法2：通过ClipboardManager读取剪贴板
-     * 在MIUI/Android 16后台可能被阻止
-     */
-    private fun checkClipboard() {
-        val prefs = PrefsHelper(this)
-        if (!prefs.serviceEnabled) return
-
-        try {
-            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-
-            if (!clipboard.hasPrimaryClip()) {
-                LogHelper.w(TAG, "hasPrimaryClip=false")
-                return
+            // 检查 isSelected 属性
+            if (node.isSelected) {
+                val text = node.text?.toString()
+                if (!text.isNullOrEmpty() && text.length > 1) {
+                    return text
+                }
             }
 
-            val clip = clipboard.primaryClip ?: return
-            if (clip.itemCount == 0) return
-            val text = clip.getItemAt(0).text?.toString() ?: return
-            if (text == lastSentText) return
-            lastSentText = text
+            // 检查 contentDescription
+            if (node.isSelected && !node.contentDescription.isNullOrEmpty()) {
+                return node.contentDescription.toString()
+            }
 
-            LogHelper.i(TAG, "从剪贴板读取: ${text.take(50)}")
-            publishToMqtt(text)
-        } catch (e: SecurityException) {
-            LogHelper.e(TAG, "SecurityException: ${e.message}")
+            // 递归检查子节点
+            for (i in 0 until node.childCount) {
+                val child = node.getChild(i) ?: continue
+                val result = findSelectedText(child)
+                child.recycle()
+                if (result != null) return result
+            }
         } catch (e: Exception) {
-            LogHelper.e(TAG, "剪贴板读取失败: ${e.message}")
+            LogHelper.w(TAG, "节点遍历异常: ${e.message}")
         }
+        return null
     }
 
     private fun publishToMqtt(text: String) {
         if (mqttManager == null || !mqttManager!!.isConnected()) {
-            LogHelper.w(TAG, "MQTT未连接，尝试重连")
             connectMqtt()
         }
         mqttManager?.publish(text)
@@ -128,13 +130,8 @@ class ClipAccessibilityService : AccessibilityService() {
 
     private fun connectMqtt() {
         val prefs = PrefsHelper(this)
-        if (prefs.mqttServer.isBlank()) {
-            LogHelper.w(TAG, "MQTT服务器未配置")
-            return
-        }
-        mqttManager = MqttManager(this) { text ->
-            LogHelper.i(TAG, "收到MQTT消息: ${text.take(50)}")
-        }
+        if (prefs.mqttServer.isBlank()) return
+        mqttManager = MqttManager(this) { }
         mqttManager?.connect()
     }
 
@@ -142,9 +139,7 @@ class ClipAccessibilityService : AccessibilityService() {
         try {
             val channelId = "clipsync_a11y"
             val channel = NotificationChannel(
-                channelId,
-                "ClipSync 无障碍服务",
-                NotificationManager.IMPORTANCE_LOW
+                channelId, "ClipSync 无障碍服务", NotificationManager.IMPORTANCE_LOW
             ).apply { setShowBadge(false) }
             getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
 
@@ -163,19 +158,14 @@ class ClipAccessibilityService : AccessibilityService() {
             } else {
                 startForeground(1002, notification)
             }
-            LogHelper.i(TAG, "常驻通知已启动")
         } catch (e: Exception) {
-            LogHelper.w(TAG, "通知启动失败: ${e.message}")
+            LogHelper.w(TAG, "通知失败: ${e.message}")
         }
     }
 
-    override fun onInterrupt() {
-        LogHelper.w(TAG, "无障碍服务中断")
-    }
-
+    override fun onInterrupt() {}
     override fun onDestroy() {
         mqttManager?.disconnect()
-        LogHelper.i(TAG, "无障碍服务已销毁")
         super.onDestroy()
     }
 
