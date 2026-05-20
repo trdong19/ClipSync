@@ -17,7 +17,10 @@ logger.configure(**loguru_config)
 
 app = FastAPI(title="ClipSync")
 
-app.add_event_handler('startup', log_startup)
+@app.on_event("startup")
+async def startup_event():
+    log_startup()
+
 app.include_router(router)
 
 # 静态资源目录
