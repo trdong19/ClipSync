@@ -161,6 +161,15 @@
             android:text="小米/MIUI 电池优化设置"
             android:layout_marginBottom="8dp" />
 
+        <!-- Shizuku 授权 -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnShizuku"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Shizuku 解锁后台剪贴板权限"
+            android:layout_marginBottom="16dp" />
+
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnLogs"
             style="@style/Widget.Material3.Button.OutlinedButton"

@@ -21,7 +21,9 @@ import com.google.android.material.textfield.TextInputEditText
 import com.clipsync.service.ClipAccessibilityService
 import com.clipsync.service.ClipSyncService
 import com.clipsync.util.PrefsHelper
+import com.clipsync.util.ShizukuHelper
 import com.clipsync.R
+import rikka.shizuku.Shizuku
 
 class MainActivity : AppCompatActivity() {
 
@@ -36,8 +38,17 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnSave: MaterialButton
     private lateinit var btnAccessibility: MaterialButton
     private lateinit var btnMiuiGuide: MaterialButton
+    private lateinit var btnShizuku: MaterialButton
     private lateinit var btnLogs: MaterialButton
     private val handler = Handler(Looper.getMainLooper())
+    private val shizukuPermCode = 1001
+    private val shizukuPermListener = Shizuku.OnRequestPermissionResultListener { code, grantResult ->
+        if (code == shizukuPermCode && grantResult == PackageManager.PERMISSION_GRANTED) {
+            Toast.makeText(this, "Shizuku 权限已授予，点击按钮再次执行", Toast.LENGTH_LONG).show()
+        } else {
+            Toast.makeText(this, "Shizuku 权限被拒绝", Toast.LENGTH_SHORT).show()
+        }
+    }
     private val statusUpdater = object : Runnable {
         override fun run() {
             updateStatus()
@@ -68,12 +79,14 @@ class MainActivity : AppCompatActivity() {
         btnSave = findViewById(R.id.btnSave)
         btnAccessibility = findViewById(R.id.btnAccessibility)
         btnMiuiGuide = findViewById(R.id.btnMiuiGuide)
+        btnShizuku = findViewById(R.id.btnShizuku)
         btnLogs = findViewById(R.id.btnLogs)
 
         loadConfig()
         setupListeners()
         requestPermissions()
         checkBatteryOptimization()
+        Shizuku.addRequestPermissionResultListener(shizukuPermListener)
     }
 
     override fun onResume() {
@@ -84,6 +97,11 @@ class MainActivity : AppCompatActivity() {
     override fun onPause() {
         super.onPause()
         handler.removeCallbacks(statusUpdater)
+    }
+
+    override fun onDestroy() {
+        Shizuku.removeRequestPermissionResultListener(shizukuPermListener)
+        super.onDestroy()
     }
 
     private fun updateStatus() {
@@ -139,6 +157,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         btnMiuiGuide.setOnClickListener { openMiuiSettings() }
+        btnShizuku.setOnClickListener { grantShizukuPermission() }
         btnLogs.setOnClickListener { startActivity(Intent(this, LogActivity::class.java)) }
     }
 
@@ -153,6 +172,34 @@ class MainActivity : AppCompatActivity() {
             ClipSyncService.stop(this)
             ClipSyncService.start(this)
         }
+    }
+
+    private fun grantShizukuPermission() {
+        val helper = ShizukuHelper(this)
+
+        if (!helper.isShizukuAvailable()) {
+            Toast.makeText(this, "Shizuku 未运行，请先安装并启动 Shizuku", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        if (!helper.hasPermission()) {
+            helper.requestPermission(this)
+            return
+        }
+
+        helper.grantClipboardPermission(object : ShizukuHelper.Callback {
+            override fun onSuccess(message: String) {
+                Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
+            }
+
+            override fun onError(message: String) {
+                Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
+            }
+
+            override fun onNeedPermission() {
+                helper.requestPermission(this@MainActivity)
+            }
+        })
     }
 
     private fun openMiuiSettings() {

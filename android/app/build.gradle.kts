@@ -49,4 +49,8 @@ dependencies {
 
     // Gson for JSON
     implementation("com.google.code.gson:gson:2.10.1")
+
+    // Shizuku
+    implementation("dev.rikka.shizuku:api:13.1.5")
+    implementation("dev.rikka.shizuku:provider:13.1.5")
 }
