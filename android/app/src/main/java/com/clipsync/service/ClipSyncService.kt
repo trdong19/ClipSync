@@ -19,24 +19,34 @@ import com.clipsync.util.ShizukuHelper
 class ClipSyncService : Service() {
 
     private lateinit var mqttManager: MqttManager
-    private lateinit var shizukuHelper: ShizukuHelper
     private lateinit var clipboard: ClipboardManager
+    private var shizukuHelper: ShizukuHelper? = null
     private var lastContent: String? = null
     private var isRunning = false
+    private var useShizuku = false
     private val TAG = "SERVICE"
     private val handler = Handler(Looper.getMainLooper())
 
+    // 定时轮询：Shizuku 模式 2 秒，降级模式 3 秒
     private val pollRunnable = object : Runnable {
         override fun run() {
-            readClipboardViaShizuku()
-            handler.postDelayed(this, 2000)
+            if (useShizuku) {
+                readClipboardViaShizuku()
+            } else {
+                readClipboardDirect()
+            }
+            handler.postDelayed(this, if (useShizuku) 2000 else 3000)
         }
+    }
+
+    private val clipListener = ClipboardManager.OnPrimaryClipChangedListener {
+        readClipboardDirect()
     }
 
     override fun onCreate() {
         super.onCreate()
-        shizukuHelper = ShizukuHelper(this)
         clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        shizukuHelper = ShizukuHelper(this)
         mqttManager = MqttManager(this) { text ->
             setClip(text)
         }
@@ -54,17 +64,39 @@ class ClipSyncService : Service() {
         }
 
         mqttManager.connect()
-        shizukuHelper.bindService()
-        handler.postDelayed(pollRunnable, 3000)
-        isRunning = true
-        LogHelper.i(TAG, "同步服务已启动")
 
+        // 优先 Shizuku，不可用时降级到系统回调
+        val shizuku = shizukuHelper
+        if (shizuku != null && shizuku.isShizukuAvailable() && shizuku.hasPermission()) {
+            useShizuku = true
+            shizuku.bindService()
+            LogHelper.i(TAG, "使用 Shizuku 轮询模式")
+        } else {
+            useShizuku = false
+            clipboard.addPrimaryClipChangedListener(clipListener)
+            LogHelper.i(TAG, "Shizuku 不可用，使用系统监听+轮询模式")
+        }
+        handler.postDelayed(pollRunnable, 3000)
+
+        isRunning = true
         return START_STICKY
     }
 
     private fun readClipboardViaShizuku() {
-        val text = shizukuHelper.readClipboard() ?: return
+        val text = shizukuHelper?.readClipboard() ?: return
         if (text.isEmpty()) return
+        publishIfChanged(text)
+    }
+
+    private fun readClipboardDirect() {
+        if (!clipboard.hasPrimaryClip()) return
+        val clip = clipboard.primaryClip ?: return
+        if (clip.itemCount == 0) return
+        val text = clip.getItemAt(0).text?.toString() ?: return
+        publishIfChanged(text)
+    }
+
+    private fun publishIfChanged(text: String) {
         if (text == lastContent) return
         lastContent = text
         LogHelper.i(TAG, "检测到复制: ${text.take(50)}")
@@ -74,8 +106,7 @@ class ClipSyncService : Service() {
     private fun setClip(text: String) {
         try {
             lastContent = text
-            val clip = ClipData.newPlainText("ClipSync", text)
-            clipboard.setPrimaryClip(clip)
+            clipboard.setPrimaryClip(ClipData.newPlainText("ClipSync", text))
             LogHelper.i(TAG, "写入成功: ${text.take(50)}")
         } catch (e: Exception) {
             LogHelper.e(TAG, "写入失败: ${e.message}")
@@ -84,7 +115,8 @@ class ClipSyncService : Service() {
 
     override fun onDestroy() {
         handler.removeCallbacks(pollRunnable)
-        shizukuHelper.unbindService()
+        clipboard.removePrimaryClipChangedListener(clipListener)
+        shizukuHelper?.unbindService()
         mqttManager.disconnect()
         isRunning = false
         super.onDestroy()
@@ -94,22 +126,17 @@ class ClipSyncService : Service() {
 
     private fun createNotificationChannel() {
         val channel = NotificationChannel(
-            CHANNEL_ID,
-            "ClipSync 同步服务",
-            NotificationManager.IMPORTANCE_LOW
+            CHANNEL_ID, "ClipSync 同步服务", NotificationManager.IMPORTANCE_LOW
         ).apply {
             setShowBadge(false)
             description = "剪贴板同步后台服务"
         }
-        val nm = getSystemService(NotificationManager::class.java)
-        nm.createNotificationChannel(channel)
+        getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }
 
     private fun buildNotification(): Notification {
         val intent = Intent(this, MainActivity::class.java)
-        val pi = PendingIntent.getActivity(
-            this, 0, intent, PendingIntent.FLAG_IMMUTABLE
-        )
+        val pi = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_IMMUTABLE)
         return Notification.Builder(this, CHANNEL_ID)
             .setContentTitle("ClipSync")
             .setContentText("剪贴板同步运行中")
