@@ -18,7 +18,6 @@ import androidx.core.content.ContextCompat
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.switchmaterial.SwitchMaterial
 import com.google.android.material.textfield.TextInputEditText
-import com.clipsync.service.ClipAccessibilityService
 import com.clipsync.service.ClipSyncService
 import com.clipsync.util.PrefsHelper
 import com.clipsync.util.ShizukuHelper
@@ -30,13 +29,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var prefs: PrefsHelper
     private lateinit var switchSync: SwitchMaterial
     private lateinit var tvStatus: TextView
-    private lateinit var tvAccessibility: TextView
     private lateinit var etServer: TextInputEditText
     private lateinit var etTopic: TextInputEditText
     private lateinit var etUsername: TextInputEditText
     private lateinit var etPassword: TextInputEditText
     private lateinit var btnSave: MaterialButton
-    private lateinit var btnAccessibility: MaterialButton
     private lateinit var btnMiuiGuide: MaterialButton
     private lateinit var btnShizuku: MaterialButton
     private lateinit var btnLogs: MaterialButton
@@ -45,7 +42,7 @@ class MainActivity : AppCompatActivity() {
     private val shizukuPermCode = 1001
     private val shizukuPermListener = Shizuku.OnRequestPermissionResultListener { code, grantResult ->
         if (code == shizukuPermCode && grantResult == PackageManager.PERMISSION_GRANTED) {
-            Toast.makeText(this, "Shizuku 权限已授予，点击按钮再次执行", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Shizuku 权限已授予，开启同步即可使用", Toast.LENGTH_LONG).show()
         } else {
             Toast.makeText(this, "Shizuku 权限被拒绝", Toast.LENGTH_SHORT).show()
         }
@@ -72,13 +69,11 @@ class MainActivity : AppCompatActivity() {
 
         switchSync = findViewById(R.id.switchSync)
         tvStatus = findViewById(R.id.tvStatus)
-        tvAccessibility = findViewById(R.id.tvAccessibility)
         etServer = findViewById(R.id.etServer)
         etTopic = findViewById(R.id.etTopic)
         etUsername = findViewById(R.id.etUsername)
         etPassword = findViewById(R.id.etPassword)
         btnSave = findViewById(R.id.btnSave)
-        btnAccessibility = findViewById(R.id.btnAccessibility)
         btnMiuiGuide = findViewById(R.id.btnMiuiGuide)
         btnShizuku = findViewById(R.id.btnShizuku)
         btnLogs = findViewById(R.id.btnLogs)
@@ -113,13 +108,6 @@ class MainActivity : AppCompatActivity() {
             connected -> "状态: 已连接"
             else -> "状态: 未连接"
         }
-
-        val a11yEnabled = ClipAccessibilityService.isEnabled(this)
-        tvAccessibility.text = if (a11yEnabled) "无障碍服务: 已开启" else "无障碍服务: 未开启"
-        tvAccessibility.setTextColor(
-            if (a11yEnabled) 0xFF4CAF50.toInt() else 0xFFFF5722.toInt()
-        )
-        btnAccessibility.text = if (a11yEnabled) "无障碍服务已开启" else "开启无障碍服务（后台同步需要）"
     }
 
     private fun loadConfig() {
@@ -151,14 +139,8 @@ class MainActivity : AppCompatActivity() {
             updateStatus()
         }
 
-        btnAccessibility.setOnClickListener {
-            val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-            startActivity(intent)
-            Toast.makeText(this, "找到 ClipSync 并开启", Toast.LENGTH_LONG).show()
-        }
-
         btnMiuiGuide.setOnClickListener { openMiuiSettings() }
-        btnShizuku.setOnClickListener { grantShizukuPermission() }
+        btnShizuku.setOnClickListener { connectShizuku() }
         btnLogs.setOnClickListener { startActivity(Intent(this, LogActivity::class.java)) }
     }
 
@@ -175,31 +157,23 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun grantShizukuPermission() {
+    private fun connectShizuku() {
         if (shizukuHelper == null) {
             shizukuHelper = ShizukuHelper(this)
         }
         val helper = shizukuHelper!!
 
-        helper.grantClipboardPermission(object : ShizukuHelper.Callback {
-            override fun onSuccess(message: String) {
-                runOnUiThread {
-                    Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
-                }
+        when {
+            !helper.isShizukuAvailable() -> {
+                Toast.makeText(this, "Shizuku 未运行，请先安装并启动 Shizuku", Toast.LENGTH_LONG).show()
             }
-
-            override fun onError(message: String) {
-                runOnUiThread {
-                    Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
-                }
+            !helper.hasPermission() -> {
+                helper.requestPermission(this)
             }
-
-            override fun onNeedPermission() {
-                runOnUiThread {
-                    helper.requestPermission(this@MainActivity)
-                }
+            else -> {
+                Toast.makeText(this, "Shizuku 已连接", Toast.LENGTH_SHORT).show()
             }
-        })
+        }
     }
 
     private fun openMiuiSettings() {

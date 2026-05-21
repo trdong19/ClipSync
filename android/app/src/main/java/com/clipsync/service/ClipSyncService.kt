@@ -1,30 +1,44 @@
 package com.clipsync.service
 
 import android.app.*
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
-import com.clipsync.clipboard.ClipboardMonitor
+import android.os.Looper
 import com.clipsync.mqtt.MqttManager
 import com.clipsync.ui.MainActivity
 import com.clipsync.util.LogHelper
+import com.clipsync.util.PrefsHelper
+import com.clipsync.util.ShizukuHelper
 
 class ClipSyncService : Service() {
 
-    private lateinit var clipboardMonitor: ClipboardMonitor
     private lateinit var mqttManager: MqttManager
+    private lateinit var shizukuHelper: ShizukuHelper
+    private lateinit var clipboard: ClipboardManager
+    private var lastContent: String? = null
     private var isRunning = false
     private val TAG = "SERVICE"
+    private val handler = Handler(Looper.getMainLooper())
+
+    private val pollRunnable = object : Runnable {
+        override fun run() {
+            readClipboardViaShizuku()
+            handler.postDelayed(this, 2000)
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
-        clipboardMonitor = ClipboardMonitor(this) { text ->
-            mqttManager.publish(text)
-        }
+        shizukuHelper = ShizukuHelper(this)
+        clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         mqttManager = MqttManager(this) { text ->
-            clipboardMonitor.setClip(text)
+            setClip(text)
         }
     }
 
@@ -40,14 +54,37 @@ class ClipSyncService : Service() {
         }
 
         mqttManager.connect()
-        clipboardMonitor.start()
+        shizukuHelper.bindService()
+        handler.postDelayed(pollRunnable, 3000)
         isRunning = true
+        LogHelper.i(TAG, "同步服务已启动")
 
         return START_STICKY
     }
 
+    private fun readClipboardViaShizuku() {
+        val text = shizukuHelper.readClipboard() ?: return
+        if (text.isEmpty()) return
+        if (text == lastContent) return
+        lastContent = text
+        LogHelper.i(TAG, "检测到复制: ${text.take(50)}")
+        mqttManager.publish(text)
+    }
+
+    private fun setClip(text: String) {
+        try {
+            lastContent = text
+            val clip = ClipData.newPlainText("ClipSync", text)
+            clipboard.setPrimaryClip(clip)
+            LogHelper.i(TAG, "写入成功: ${text.take(50)}")
+        } catch (e: Exception) {
+            LogHelper.e(TAG, "写入失败: ${e.message}")
+        }
+    }
+
     override fun onDestroy() {
-        clipboardMonitor.stop()
+        handler.removeCallbacks(pollRunnable)
+        shizukuHelper.unbindService()
         mqttManager.disconnect()
         isRunning = false
         super.onDestroy()
