@@ -7,46 +7,22 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
-import android.os.Handler
 import android.os.IBinder
-import android.os.Looper
 import com.clipsync.mqtt.MqttManager
 import com.clipsync.ui.MainActivity
 import com.clipsync.util.LogHelper
-import com.clipsync.util.PrefsHelper
-import com.clipsync.util.ShizukuHelper
 
 class ClipSyncService : Service() {
 
     private lateinit var mqttManager: MqttManager
     private lateinit var clipboard: ClipboardManager
-    private var shizukuHelper: ShizukuHelper? = null
     private var lastContent: String? = null
     private var isRunning = false
-    private var useShizuku = false
     private val TAG = "SERVICE"
-    private val handler = Handler(Looper.getMainLooper())
-
-    // 定时轮询：Shizuku 模式 2 秒，降级模式 3 秒
-    private val pollRunnable = object : Runnable {
-        override fun run() {
-            if (useShizuku) {
-                readClipboardViaShizuku()
-            } else {
-                readClipboardDirect()
-            }
-            handler.postDelayed(this, if (useShizuku) 2000 else 3000)
-        }
-    }
-
-    private val clipListener = ClipboardManager.OnPrimaryClipChangedListener {
-        readClipboardDirect()
-    }
 
     override fun onCreate() {
         super.onCreate()
         clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        shizukuHelper = ShizukuHelper(this)
         mqttManager = MqttManager(this) { text ->
             setClip(text)
         }
@@ -64,43 +40,10 @@ class ClipSyncService : Service() {
         }
 
         mqttManager.connect()
-
-        // 优先 Shizuku，不可用时降级到系统回调
-        val shizuku = shizukuHelper
-        if (shizuku != null && shizuku.isShizukuAvailable() && shizuku.hasPermission()) {
-            useShizuku = true
-            shizuku.bindService()
-            LogHelper.i(TAG, "使用 Shizuku 轮询模式")
-        } else {
-            useShizuku = false
-            clipboard.addPrimaryClipChangedListener(clipListener)
-            LogHelper.i(TAG, "Shizuku 不可用，使用系统监听+轮询模式")
-        }
-        handler.postDelayed(pollRunnable, 3000)
-
         isRunning = true
+        LogHelper.i(TAG, "同步服务已启动")
+
         return START_STICKY
-    }
-
-    private fun readClipboardViaShizuku() {
-        val text = shizukuHelper?.readClipboard() ?: return
-        if (text.isEmpty()) return
-        publishIfChanged(text)
-    }
-
-    private fun readClipboardDirect() {
-        if (!clipboard.hasPrimaryClip()) return
-        val clip = clipboard.primaryClip ?: return
-        if (clip.itemCount == 0) return
-        val text = clip.getItemAt(0).text?.toString() ?: return
-        publishIfChanged(text)
-    }
-
-    private fun publishIfChanged(text: String) {
-        if (text == lastContent) return
-        lastContent = text
-        LogHelper.i(TAG, "检测到复制: ${text.take(50)}")
-        mqttManager.publish(text)
     }
 
     private fun setClip(text: String) {
@@ -114,9 +57,6 @@ class ClipSyncService : Service() {
     }
 
     override fun onDestroy() {
-        handler.removeCallbacks(pollRunnable)
-        clipboard.removePrimaryClipChangedListener(clipListener)
-        shizukuHelper?.unbindService()
         mqttManager.disconnect()
         isRunning = false
         super.onDestroy()

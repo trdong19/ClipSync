@@ -33,16 +33,6 @@ android {
     kotlinOptions {
         jvmTarget = "1.8"
     }
-
-    buildFeatures {
-        aidl = true
-    }
-
-    sourceSets {
-        getByName("main") {
-            aidl.srcDirs("src/main/aidl")
-        }
-    }
 }
 
 dependencies {
@@ -59,8 +49,4 @@ dependencies {
 
     // Gson for JSON
     implementation("com.google.code.gson:gson:2.10.1")
-
-    // Shizuku
-    implementation("dev.rikka.shizuku:api:13.1.5")
-    implementation("dev.rikka.shizuku:provider:13.1.5")
 }
